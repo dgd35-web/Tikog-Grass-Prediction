@@ -2,114 +2,56 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-# ======================================================
-# APP TITLE & DESCRIPTION
-# ======================================================
-st.title("Tikog Requirement Prediction Application")
-st.write("Enter the following details to predict the required Tikog for your product:")
+# --- Inputs ---
+length = st.number_input("Length")
+width = st.number_input("Width")
+quantity = st.number_input("Quantity")
+number_of_sides = st.number_input("Number of Sides", value=1)
 
-# ======================================================
-# NUMBER OF SIDES PER PRODUCT
-# ======================================================
-product_sides = {
-    "Basket": 1,
-    "Mat": 1,
-    "Bag": 2,
-    "Slippers": 2,
-    "Wallet": 2
-    
-}
+product_type = st.selectbox("Product Type", ["mat", "bag", "hat"])
 
-# ======================================================
-# DIMENSION OPTIONS
-# ======================================================
-dimension_options = {
-    "27 inches x 16 inches": (27, 16),
-    "11 inches x 14 ½ inches": (11, 14.5),
-    "12 inches x 7 ½ inches x 3 ½ inches": (12, 7.5),
-    "Body = 17 ½ x 2, packet (11 ½ x 11 ½), side (5 x 6)": (17.5, 2),
-    "29 inches x 22 inches": (29, 22)
-}
+# Encode product type (example)
+product_map = {"mat": 0, "bag": 1, "hat": 2}
+product_type_encoded = product_map[product_type]
 
-# ======================================================
-# DIMENSION INPUT
-# ======================================================
-dimension = st.selectbox(
-    "Dimension",
-    options=list(dimension_options.keys()) + ["Custom"]
-)
+# --- Deterministic Calculation ---
+base_tikog_per_side = 216  # or your formula
+tikog_per_product = base_tikog_per_side * number_of_sides
+deterministic_tikog = tikog_per_product * quantity
 
-if dimension != "Custom":
-    length, width = dimension_options[dimension]
-    st.write(f"Length: {length} inches")
-    st.write(f"Width: {width} inches")
-else:
-    length = st.number_input("Length (in inches)", min_value=0.0, step=0.1)
-    width = st.number_input("Width (in inches)", min_value=0.0, step=0.1)
+# --- Display breakdown ---
+st.subheader("Breakdown")
+st.write(f"Base Tikog per side: {base_tikog_per_side}")
+st.write(f"Tikog per product: {tikog_per_product}")
+st.write(f"Deterministic total: {deterministic_tikog}")
 
-# ======================================================
-# OTHER INPUTS
-# ======================================================
-quantity = st.text_input(
-    "Quantity (Enter multiple quantities separated by commas)",
-    "10"
-)
+# --- ML Prediction ---
+if st.button("Predict with Hybrid Model"):
 
-product_type = st.selectbox(
-    "Product Type",
-    ["Basket", "Mat", "Bag", "Slippers", "Wallet", "Others"]
-)
+    # Prepare features
+    features = np.array([
+        length,
+        width,
+        quantity,
+        product_type_encoded,
+        tikog_per_product,
+        deterministic_tikog
+    ])
 
-sales_trend = st.selectbox(
-    "Sales Trend",
-    ["Increasing", "Stable", "Decreasing"]
-)
+    # --- LSTM (optional) ---
+    lstm_output = lstm_model.predict(features.reshape(1, 1, -1))[0]
 
-# ======================================================
-# PREDICTION LOGIC (DETERMINISTIC)
-# ======================================================
-if st.button("Predict"):
-    try:
-        # Parse quantity input
-        quantities = [int(q.strip()) for q in quantity.split(",")]
-        total_quantity = sum(quantities)
+    # Combine
+    final_features = np.append(features, lstm_output).reshape(1, -1)
 
-        # --------------------------------------------------
-        # DETERMINISTIC PROXY (AREA-BASED)
-        # --------------------------------------------------
-        base_tikog_per_side = int((length * width) / 2)
+    # --- XGBoost Residual ---
+    predicted_residual = xgb_model.predict(final_features)[0]
 
-        # --------------------------------------------------
-        # APPLY PRODUCT SIDES
-        # --------------------------------------------------
-        sides = product_sides.get(product_type, 1)
-        tikog_with_sides = base_tikog_per_side * sides
+    # --- Final Tikog ---
+    final_tikog = deterministic_tikog + predicted_residual
 
-        # --------------------------------------------------
-        # APPLY QUANTITY
-        # --------------------------------------------------
-        final_tikog_needed = tikog_with_sides * total_quantity
-
-        # ==================================================
-        # OUTPUT
-        # ==================================================
-        st.success(
-            f"Prediction: {final_tikog_needed} units of Tikog required"
-        )
-
-        st.write("### Breakdown")
-        st.write(f"Base Tikog per side (deterministic): {base_tikog_per_side}")
-        st.write(f"Number of sides: {sides}")
-        st.write(f"Tikog per product: {tikog_with_sides}")
-        st.write(f"Total quantity: {total_quantity}")
-
-        st.write("### Details")
-        st.write(f"Dimension: {dimension}")
-        st.write(f"Length: {length} inches")
-        st.write(f"Width: {width} inches")
-        st.write(f"Product Type: {product_type}")
-        st.write(f"Sales Trend: {sales_trend}")
-
+    st.subheader("Final Prediction")
+    st.success(f"Estimated Tikog Needed: {round(final_tikog, 2)}")
     except ValueError:
         st.error(
             "Please enter valid integers separated by commas in the Quantity field."
