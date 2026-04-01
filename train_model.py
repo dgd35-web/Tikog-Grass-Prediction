@@ -79,3 +79,4 @@ print(results_df)
 # --- STEP 9: Save trained models ---
 model.save("lstm_model.keras")        # modern format
 xgb.save_model("xgb_model.json")
+joblib.dump(encoder, "product_encoder.pkl")
