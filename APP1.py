@@ -1,28 +1,19 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import tensorflow as tf
+import xgboost as xgb
 
-# ======================================================
-# APP TITLE & DESCRIPTION
-# ======================================================
+# Load models
+lstm_model = tf.keras.models.load_model("lstm_model.keras")
+xgb_model = xgb.XGBRegressor()
+xgb_model.load_model("xgb_model.json")
+
 st.title("Tikog Requirement Prediction Application")
 st.write("Enter the following details to predict the required Tikog for your product:")
 
-# ======================================================
-# NUMBER OF SIDES PER PRODUCT
-# ======================================================
-product_sides = {
-    "Basket": 1,
-    "Mat": 1,
-    "Bag": 2,
-    "Slippers": 2,
-    "Wallet": 2,
-    "Others": 1
-}
+product_sides = {"Basket": 1, "Mat": 1, "Bag": 2, "Slippers": 2, "Wallet": 2, "Others": 1}
 
-# ======================================================
-# DIMENSION OPTIONS
-# ======================================================
 dimension_options = {
     "27 inches x 16 inches": (27, 16),
     "11 inches x 14 ½ inches": (11, 14.5),
@@ -31,77 +22,38 @@ dimension_options = {
     "29 inches x 22 inches": (29, 22)
 }
 
-# ======================================================
-# DIMENSION INPUT
-# ======================================================
-dimension = st.selectbox(
-    "Dimension",
-    options=list(dimension_options.keys()) + ["Custom"]
-)
-
+dimension = st.selectbox("Dimension", options=list(dimension_options.keys()) + ["Custom"])
 if dimension != "Custom":
     length, width = dimension_options[dimension]
-    st.write(f"Length: {length} inches")
-    st.write(f"Width: {width} inches")
 else:
     length = st.number_input("Length (in inches)", min_value=0.0, step=0.1)
     width = st.number_input("Width (in inches)", min_value=0.0, step=0.1)
 
-# ======================================================
-# OTHER INPUTS
-# ======================================================
-quantity = st.text_input(
-    "Quantity",
-    "10"
-)
+quantity = st.text_input("Quantity", "10")
+product_type = st.selectbox("Product Type", ["Basket", "Mat", "Bag", "Slippers", "Wallet", "Others"])
+sales_trend = st.selectbox("Sales Trend", ["Increasing", "Stable", "Decreasing"])
 
-product_type = st.selectbox(
-    "Product Type",
-    ["Basket", "Mat", "Bag", "Slippers", "Wallet", "Others"]
-)
-
-sales_trend = st.selectbox(
-    "Sales Trend",
-    ["Increasing", "Stable", "Decreasing"]
-)
-
-# ======================================================
-# PREDICTION LOGIC
-# ======================================================
 if st.button("Predict"):
     try:
-        # Parse quantity
         quantities = [int(q.strip()) for q in quantity.split(",")]
         total_quantity = sum(quantities)
 
-        # --------------------------------------------------
-        # PLACEHOLDER MODEL PREDICTION (PER SIDE)
-        # Replace this later with your trained model
-        # --------------------------------------------------
-        base_tikog_per_side = np.random.randint(100, 500)
+        # Build features
+        features = np.array([[total_quantity, length, width]])
 
-        # --------------------------------------------------
-        # APPLY PRODUCT SIDES
-        # --------------------------------------------------
+        # Predictions
+        lstm_pred = lstm_model.predict(features.reshape((features.shape[0], features.shape[1], 1)))
+        final_pred = xgb_model.predict(lstm_pred)
+
         sides = product_sides.get(product_type, 1)
-        tikog_with_sides = base_tikog_per_side * sides
+        final_tikog_needed = final_pred[0] * sides
 
-        # --------------------------------------------------
-        # APPLY QUANTITY
-        # --------------------------------------------------
-        final_tikog_needed = tikog_with_sides * total_quantity
-
-        # ==================================================
-        # OUTPUT
-        # ==================================================
-        st.success(
-            f"Prediction: {final_tikog_needed} units of Tikog required"
-        )
+        st.success(f"Prediction: {final_tikog_needed:.2f} units of Tikog required")
 
         st.write("### Breakdown")
-        st.write(f"Base Tikog per side: {base_tikog_per_side}")
+        st.write(f"LSTM raw prediction: {lstm_pred[0][0]:.2f}")
+        st.write(f"XGBoost adjusted prediction: {final_pred[0]:.2f}")
         st.write(f"Number of sides: {sides}")
-        st.write(f"Tikog per product: {base_tikog_per_side}")
         st.write(f"Total quantity: {total_quantity}")
 
         st.write("### Details")
@@ -112,6 +64,4 @@ if st.button("Predict"):
         st.write(f"Sales Trend: {sales_trend}")
 
     except ValueError:
-        st.error(
-            "Please enter valid integers separated by commas in the Quantity field."
-        )
+        st.error("Please enter valid integers separated by commas in the Quantity field.")
