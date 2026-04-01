@@ -41,8 +41,13 @@ if st.button("Predict"):
     try:
         total_quantity = int(quantity)
 
+        # --- Sanitize product type ---
+        # If encoder doesn't recognize 'Mat', map it to 'Others' temporarily
+        known_types = ["Basket", "Bag", "Slippers", "Wallet", "Others"]
+        safe_product_type = product_type if product_type in known_types else "Others"
+
         # Encode product type
-        product_encoded = encoder.transform([[product_type]])
+        product_encoded = encoder.transform([[safe_product_type]])
 
         # Build features: product type + dimensions + quantity
         features = np.hstack([product_encoded, [[length, width, total_quantity]]])
