@@ -13,8 +13,10 @@ encoder = joblib.load("product_encoder.pkl")
 st.title("Tikog Requirement Prediction Application")
 st.write("Enter the following details to predict the required Tikog for your product:")
 
+# Define product sides (used for adjustment)
 product_sides = {"Basket": 1, "Mat": 1, "Bag": 2, "Slippers": 2, "Wallet": 2, "Others": 1}
 
+# Dimension options
 dimension_options = {
     "27 inches x 16 inches": (27, 16),
     "11 inches x 14 ½ inches": (11, 14.5),
@@ -23,6 +25,7 @@ dimension_options = {
     "29 inches x 22 inches": (29, 22)
 }
 
+# --- Input form ---
 dimension = st.selectbox("Dimension", options=list(dimension_options.keys()) + ["Custom"])
 if dimension != "Custom":
     length, width = dimension_options[dimension]
@@ -32,8 +35,8 @@ else:
 
 quantity = st.number_input("Quantity", min_value=1, step=1)
 product_type = st.selectbox("Product Type", ["Basket", "Mat", "Bag", "Slippers", "Wallet", "Others"])
-sales_trend = st.selectbox("Sales Trend", ["Increasing", "Stable", "Decreasing"])
 
+# --- Prediction ---
 if st.button("Predict"):
     try:
         total_quantity = int(quantity)
@@ -64,7 +67,6 @@ if st.button("Predict"):
         st.write(f"Length: {length} inches")
         st.write(f"Width: {width} inches")
         st.write(f"Product Type: {product_type}")
-        st.write(f"Sales Trend: {sales_trend}")
 
     except Exception as e:
         st.error(f"An error occurred during prediction: {e}")
