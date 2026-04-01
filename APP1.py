@@ -1,117 +1,50 @@
-import streamlit as st
-import pandas as pd
+# APP1.py
+from flask import Flask, request, jsonify
+import tensorflow as tf
+import xgboost as xgb
 import numpy as np
 
-# ======================================================
-# APP TITLE & DESCRIPTION
-# ======================================================
-st.title("Tikog Requirement Prediction Application")
-st.write("Enter the following details to predict the required Tikog for your product:")
+app = Flask(__name__)
 
-# ======================================================
-# NUMBER OF SIDES PER PRODUCT
-# ======================================================
-product_sides = {
-    "Basket": 1,
-    "Mat": 1,
-    "Bag": 2,
-    "Slippers": 2,
-    "Wallet": 2,
-    "Others": 1
-}
+# --- Load trained models ---
+lstm_model = tf.keras.models.load_model("lstm_model.h5")
+xgb_model = xgb.XGBRegressor()
+xgb_model.load_model("xgb_model.json")
 
-# ======================================================
-# DIMENSION OPTIONS
-# ======================================================
-dimension_options = {
-    "27 inches x 16 inches": (27, 16),
-    "11 inches x 14 ½ inches": (11, 14.5),
-    "12 inches x 7 ½ inches x 3 ½ inches": (12, 7.5),
-    "Body = 17 ½ x 2, packet (11 ½ x 11 ½), side (5 x 6)": (17.5, 2),
-    "29 inches x 22 inches": (29, 22)
-}
+def prediction_interval(model, X, n_bootstrap=100, alpha=0.05):
+    preds = []
+    for _ in range(n_bootstrap):
+        idx = np.random.choice(len(X), len(X), replace=True)
+        X_resampled = X[idx]
+        preds.append(model.predict(X_resampled))
+    preds = np.array(preds)
+    mean_pred = preds.mean(axis=0)
+    lower = np.percentile(preds, 100*alpha/2, axis=0)
+    upper = np.percentile(preds, 100*(1-alpha/2), axis=0)
+    return mean_pred, lower, upper
 
-# ======================================================
-# DIMENSION INPUT
-# ======================================================
-dimension = st.selectbox(
-    "Dimension",
-    options=list(dimension_options.keys()) + ["Custom"]
-)
+@app.route("/predict", methods=["POST"])
+def predict():
+    data = request.json
+    quantity = float(data.get("quantity"))
+    length = float(data.get("length"))
+    width = float(data.get("width"))
 
-if dimension != "Custom":
-    length, width = dimension_options[dimension]
-    st.write(f"Length: {length} inches")
-    st.write(f"Width: {width} inches")
-else:
-    length = st.number_input("Length (in inches)", min_value=0.0, step=0.1)
-    width = st.number_input("Width (in inches)", min_value=0.0, step=0.1)
+    # --- Preprocess input ---
+    features = np.array([[quantity, length, width]])
 
-# ======================================================
-# OTHER INPUTS
-# ======================================================
-quantity = st.text_input(
-    "Quantity",
-    "10"
-)
+    # --- LSTM prediction ---
+    lstm_pred = lstm_model.predict(features.reshape((features.shape[0], features.shape[1], 1)))
 
-product_type = st.selectbox(
-    "Product Type",
-    ["Basket", "Mat", "Bag", "Slippers", "Wallet", "Others"]
-)
+    # --- XGBoost prediction ---
+    mean_pred, lower, upper = prediction_interval(xgb_model, lstm_pred, n_bootstrap=200)
 
-sales_trend = st.selectbox(
-    "Sales Trend",
-    ["Increasing", "Stable", "Decreasing"]
-)
+    return jsonify({
+        "predicted_demand": float(mean_pred[0]),
+        "lower_bound": float(lower[0]),
+        "upper_bound": float(upper[0]),
+        "confidence_level": "95%"
+    })
 
-# ======================================================
-# PREDICTION LOGIC
-# ======================================================
-if st.button("Predict"):
-    try:
-        # Parse quantity
-        quantities = [int(q.strip()) for q in quantity.split(",")]
-        total_quantity = sum(quantities)
-
-        # --------------------------------------------------
-        # PLACEHOLDER MODEL PREDICTION (PER SIDE)
-        # Replace this later with your trained model
-        # --------------------------------------------------
-        base_tikog_per_side = np.random.randint(100, 500)
-
-        # --------------------------------------------------
-        # APPLY PRODUCT SIDES
-        # --------------------------------------------------
-        sides = product_sides.get(product_type, 1)
-        tikog_with_sides = base_tikog_per_side * sides
-
-        # --------------------------------------------------
-        # APPLY QUANTITY
-        # --------------------------------------------------
-        final_tikog_needed = tikog_with_sides * total_quantity
-
-        # ==================================================
-        # OUTPUT
-        # ==================================================
-        st.success(
-            f"Prediction: {final_tikog_needed} units of Tikog required"
-        )
-
-        st.write("### Breakdown")
-        st.write(f"Base Tikog per side: {base_tikog_per_side}")
-        st.write(f"Number of sides: {sides}")
-        st.write(f"Tikog per product: {base_tikog_per_side}")
-        st.write(f"Total quantity: {total_quantity}")
-
-        st.write("### Details")
-        st.write(f"Dimension: {dimension}")
-        st.write(f"Length: {length} inches")
-        st.write(f"Width: {width} inches")
-        st.write(f"Product Type: {product_type}")
-        st.write(f"Sales Trend: {sales_trend}")
-
-    except ValueError:
-        st.error(
-            "Please enter valid integers separated by commas in the Quantity field."
-        )
+if __name__ == "__main__":
+    app.run(debug=True)
