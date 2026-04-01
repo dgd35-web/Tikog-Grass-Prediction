@@ -109,4 +109,3 @@ model.save("lstm_model.keras")
 
 # OR legacy format
 model.save("lstm_model.h5")
-
