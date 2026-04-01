@@ -104,8 +104,9 @@ results_df = pd.DataFrame({
 print("\nEvaluation Results with Dataset Info:")
 print(results_df)
 
-# Recommended modern format
-model.save("lstm_model.keras")
-
-# OR legacy format
+# --- Save trained models ---
+# Save LSTM model
 model.save("lstm_model.h5")
+
+# Save XGBoost model
+xgb.save_model("xgb_model.json")
