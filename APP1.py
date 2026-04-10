@@ -1,28 +1,42 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
+import tensorflow as tf
+import xgboost as xgb
+import joblib
+from sklearn.metrics import r2_score
 
-# ======================================================
-# APP TITLE & DESCRIPTION
-# ======================================================
+# --- Load models and encoder ---
+lstm_model = tf.keras.models.load_model("lstm_model.keras")
+
+xgb_model = xgb.XGBRegressor()
+xgb_model.load_model("xgb_model.json")
+
+encoder = joblib.load("product_encoder.pkl")
+
 st.title("Tikog Requirement Prediction Application")
-st.write("Enter the following details to predict the required Tikog for your product:")
+st.write("Enter the following details to predict the required Tikog demand (pieces) for your product:")
 
-# ======================================================
-# NUMBER OF SIDES PER PRODUCT
-# ======================================================
+# Define product sides (original logic kept)
 product_sides = {
     "Basket": 1,
     "Mat": 1,
     "Bag": 2,
-    "Slippers": 2,
-    "Wallet": 2,
+    "Slippers": 1,   # no side
+    "Wallet": 1,     # no side override
     "Others": 1
 }
 
-# ======================================================
-# DIMENSION OPTIONS
-# ======================================================
+# Map simplified product types to encoder categories
+product_mapping = {
+    "Mat": "mat",
+    "Basket": "bag",            # kept as in your original code
+    "Bag": "bag",
+    "Slippers": "slippers",
+    "Wallet": "divider_wallet",
+    "Others": "pouch"
+}
+
+# Dimension options
 dimension_options = {
     "27 inches x 16 inches": (27, 16),
     "11 inches x 14 ½ inches": (11, 14.5),
@@ -31,87 +45,89 @@ dimension_options = {
     "29 inches x 22 inches": (29, 22)
 }
 
-# ======================================================
-# DIMENSION INPUT
-# ======================================================
-dimension = st.selectbox(
-    "Dimension",
-    options=list(dimension_options.keys()) + ["Custom"]
-)
+# --- Input form ---
+dimension = st.selectbox("Dimension", options=list(dimension_options.keys()) + ["Custom"])
 
 if dimension != "Custom":
     length, width = dimension_options[dimension]
-    st.write(f"Length: {length} inches")
-    st.write(f"Width: {width} inches")
 else:
     length = st.number_input("Length (in inches)", min_value=0.0, step=0.1)
     width = st.number_input("Width (in inches)", min_value=0.0, step=0.1)
 
-# ======================================================
-# OTHER INPUTS
-# ======================================================
-quantity = st.text_input(
-    "Quantity",
-    "10"
-)
+quantity = st.number_input("Quantity", min_value=1, step=1)
+product_type = st.selectbox("Product Type", ["Basket", "Mat", "Bag", "Slippers", "Wallet", "Others"])
 
-product_type = st.selectbox(
-    "Product Type",
-    ["Basket", "Mat", "Bag", "Slippers", "Wallet", "Others"]
-)
-
-sales_trend = st.selectbox(
-    "Sales Trend",
-    ["Increasing", "Stable", "Decreasing"]
-)
-
-# ======================================================
-# PREDICTION LOGIC
-# ======================================================
 if st.button("Predict"):
     try:
-        # Parse quantity
-        quantities = [int(q.strip()) for q in quantity.split(",")]
-        total_quantity = sum(quantities)
+        total_quantity = int(quantity)
 
         # --------------------------------------------------
-        # PLACEHOLDER MODEL PREDICTION (PER SIDE)
-        # Replace this later with your trained model
+        # ONLY override Slippers and Wallet
         # --------------------------------------------------
-        base_tikog_per_side = np.random.randint(100, 500)
+        if product_type in ["Slippers", "Wallet"]:
+            tikog_per_unit = 40
+            total_tikog = tikog_per_unit * total_quantity
+            conversion_factor = 2.46
+            strand_length_ft = total_tikog * conversion_factor
 
-        # --------------------------------------------------
-        # APPLY PRODUCT SIDES
-        # --------------------------------------------------
-        sides = product_sides.get(product_type, 1)
-        tikog_with_sides = base_tikog_per_side * sides
+        else:
+            # --------------------------------------------------
+            # ORIGINAL computation for all other products
+            # --------------------------------------------------
 
-        # --------------------------------------------------
-        # APPLY QUANTITY
-        # --------------------------------------------------
-        final_tikog_needed = tikog_with_sides * total_quantity
+            # Map user-friendly product type to encoder category
+            mapped_type = product_mapping.get(product_type, product_type)
 
-        # ==================================================
-        # OUTPUT
-        # ==================================================
-        st.success(
-            f"Prediction: {final_tikog_needed} units of Tikog required"
-        )
+            # Encode product type safely
+            product_encoded = encoder.transform([[mapped_type]])
+            product_encoded = np.array(product_encoded)
 
-        # st.write("### Breakdown")
-        # st.write(f"Base Tikog per side: {base_tikog_per_side}")
-        # st.write(f"Number of sides: {sides}")
-        # st.write(f"Tikog per product: {base_tikog_per_side}")
-        # st.write(f"Total quantity: {total_quantity}")
+            # Numeric features reshaped to 2D
+            numeric_features = np.array([[length, width, total_quantity]])
 
-        # st.write("### Details")
-        # st.write(f"Dimension: {dimension}")
-        # st.write(f"Length: {length} inches")
-        # st.write(f"Width: {width} inches")
-        # st.write(f"Product Type: {product_type}")
-        # st.write(f"Sales Trend: {sales_trend}")
+            # Combine in same order as training: product_encoded first, then numeric
+            features = np.hstack([product_encoded, numeric_features])
 
-    except ValueError:
-        st.error(
-            "Please enter valid integers separated by commas in the Quantity field."
-        )
+            # Predictions
+            nn_pred = lstm_model.predict(features, verbose=0)
+            final_pred = xgb_model.predict(nn_pred)
+
+            # Keep original side logic for non-wallet/non-slippers
+            sides = product_sides.get(product_type, 1)
+            tikog_per_unit = final_pred[0] * sides
+
+            # Keep original scaling for non-wallet/non-slippers
+            scaling_factor = 122.4
+            tikog_per_unit = tikog_per_unit * scaling_factor
+
+            # Keep original total computation
+            total_tikog = tikog_per_unit * total_quantity
+
+            # Conversion factor
+            conversion_factor = 2.46
+            strand_length_ft = total_tikog * conversion_factor
+
+        # --- Display results ---
+        st.success(f"Total Tikog Needed: {int(round(total_tikog))} pieces")
+
+        results = {
+            "Product Type": product_type,
+            "Dimension": f"{length} x {width} inches",
+            "Tikog per Unit (pieces)": int(round(tikog_per_unit)),
+            "Quantity": total_quantity,
+            "Total Tikog (pieces)": int(round(total_tikog)),
+            "Total Strand Length (ft)": int(round(strand_length_ft))
+        }
+        st.table(results)
+
+        # --- Compute and display R² accuracy ---
+        try:
+            X_test, y_test = joblib.load("test_data.pkl")
+            y_pred_test = xgb_model.predict(X_test)
+            r2 = r2_score(y_test, y_pred_test)
+            st.info(f"Model Prediction Accuracy (R²): {r2:.3f}")
+        except Exception:
+            st.warning("R² score could not be computed. Ensure test_data.pkl exists.")
+
+    except Exception as e:
+        st.error(f"An error occurred during prediction: {e}")
