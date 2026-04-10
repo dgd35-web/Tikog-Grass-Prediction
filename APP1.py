@@ -97,7 +97,7 @@ if st.button("Predict"):
             tikog_per_unit = final_pred[0] * sides
 
             # Keep original scaling for non-wallet/non-slippers
-            scaling_factor = 122.4
+            scaling_factor = 130.4
             tikog_per_unit = tikog_per_unit * scaling_factor
 
             # Keep original total computation
